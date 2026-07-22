@@ -22,7 +22,7 @@ export class User {
   @Column({
     length: 100,
   })
-  firstName: string | undefined;
+  firstName!: string;
 
   @Column({
     length: 100,
