@@ -66,6 +66,22 @@ export class User {
   })
   status!: UserStatus;
 
+  @Column({
+    nullable: true,
+  })
+  refreshTokenHash!: string | null;
+
+  @Column({
+    nullable: true,
+  })
+  passwordResetCodeHash!: string | null;
+
+  @Column({
+    type: 'timestamp',
+    nullable: true,
+  })
+  passwordResetExpiresAt!: Date | null;
+
   @CreateDateColumn()
   createdAt!: Date;
 
