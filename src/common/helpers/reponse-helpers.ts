@@ -1,4 +1,4 @@
-import { ApiResponse } from './api-response';
+import { ApiResponse } from '../responses/api-response';
 
 export class ResponseHelper {
   static success<T>(message: string, data?: T): ApiResponse<T> {
