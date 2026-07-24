@@ -20,6 +20,10 @@ import { VerifyResetCodeDto } from './dto/verify-reset-code';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { Response } from 'express';
 import { Res } from '@nestjs/common';
+import { BaseRegisterDto } from './dto/base-dto';
+import { RegisterClientDto } from './dto/registerClient.dto';
+import { RegisterCoachDto } from './dto/registerCoach.dto';
+import { VerifiyEmailDto } from './dto/verify-email';
 
 @Controller('auth')
 export class AuthController {
@@ -33,7 +37,7 @@ export class AuthController {
   ) {
     const result = await this.authService.login(loginDto);
 
-    res.cookie('refreshToken', result.refreshToken, {
+    res.cookie('refreshToken', result.data?.accessToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'lax',
@@ -41,9 +45,19 @@ export class AuthController {
     });
 
     return {
-      accessToken: result.accessToken,
-      user: result.user,
+      accessToken: result.data?.accessToken,
+      user: result.data?.user,
     };
+  }
+
+  @Post('register/client')
+  registerClient(@Body() registerClientDto: RegisterClientDto) {
+    return this.authService.registerClient(registerClientDto);
+  }
+
+  @Post('register/coach')
+  registerCoach(@Body() registerCoachDto: RegisterCoachDto) {
+    return this.authService.registerCoach(registerCoachDto);
   }
 
   @Post('refresh')
@@ -55,13 +69,17 @@ export class AuthController {
   @UseGuards(JwtAuthGuard)
   logout(@CurrentUser() user: User, @Res({ passthrough: true }) res: Response) {
     res.clearCookie('refreshToken');
-
     return this.authService.logout(user.id);
   }
 
   @Post('reset-password')
   resetPassword(@Body() resetPasswordDto: ResetPasswordDto) {
     return this.authService.resetPassword(resetPasswordDto);
+  }
+
+  @Post('verify-email')
+  verifyEmail(@Body() verifyResetCodeDto: VerifiyEmailDto) {
+    return this.authService.verifyResetCode(verifyResetCodeDto);
   }
 
   @Post('verify-reset-code')

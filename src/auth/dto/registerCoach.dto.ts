@@ -1,26 +1,35 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsDateString, IsNotEmpty, IsString } from 'class-validator';
+import { IsInt, IsNotEmpty, IsString, Min } from 'class-validator';
 
 import { BaseRegisterDto } from './base-dto';
 
-export class RegisterClientDto extends BaseRegisterDto {
+export class RegisterCoachDto extends BaseRegisterDto {
   @ApiProperty({
-    example: '2026-07-22',
-  })
-  @IsDateString()
-  releaseDate!: Date;
-
-  @ApiProperty({
-    example: 'resume.pdf',
+    example: 'Clinical Psychology',
   })
   @IsString()
   @IsNotEmpty()
-  resume!: string;
+  specialization!: string;
 
   @ApiProperty({
-    example: 'id-card.pdf',
+    example: 'Master of Clinical Psychology',
   })
   @IsString()
   @IsNotEmpty()
-  idCard!: string;
+  qualification!: string;
+
+  @ApiProperty({
+    example: 5,
+    description: 'Years of professional experience',
+  })
+  @IsInt()
+  @Min(0)
+  experience!: number;
+
+  @ApiProperty({
+    example: 'PK-PSY-123456',
+  })
+  @IsString()
+  @IsNotEmpty()
+  licenseNumber!: string;
 }

@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Injectable,
   UnauthorizedException,
@@ -20,6 +21,13 @@ import { ForgotPasswordDto } from './dto/forget-password.dto';
 import { VerifyResetCodeDto } from './dto/verify-reset-code';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
+import { BaseRegisterDto } from './dto/base-dto';
+import { UserRole } from 'generated/prisma/enums';
+import { RegisterClientDto } from './dto/registerClient.dto';
+import { ClientProfileRepository } from 'src/profiles/repository/clientprofile.repository';
+import { RegisterCoachDto } from './dto/registerCoach.dto';
+import { CoachProfileRepository } from 'src/profiles/repository/coachprofile.repository';
+import { ApiResponse } from '../common/responses/api-response';
 
 @Injectable()
 export class AuthService {
@@ -28,6 +36,8 @@ export class AuthService {
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
     private readonly mailService: MailService,
+    private readonly clientProfileRepository: ClientProfileRepository,
+    private readonly coachProfileRepository: CoachProfileRepository,
   ) {}
 
   private async validateUser(loginDto: LoginDto): Promise<User> {
@@ -53,6 +63,82 @@ export class AuthService {
 
     return user;
   }
+
+  private async createUser(
+    dto: BaseRegisterDto,
+    role: UserRole,
+    status: UserStatus,
+  ): Promise<User> {
+    const existingUser = await this.userRepository.findByEmail(dto.email);
+
+    if (existingUser) {
+      throw new ConflictException('Email already exists.');
+    }
+
+    const hashedPassword = await bcrypt.hash(dto.password, 10);
+
+    return this.userRepository.create({
+      firstName: dto.firstName,
+      lastName: dto.lastName,
+      email: dto.email,
+      password: hashedPassword,
+      phoneNumber: dto.phoneNumber,
+      role: role as UserRole,
+      status,
+    });
+  }
+
+  public registerClient = async (registerClientDto: RegisterClientDto) => {
+    const user = await this.createUser(
+      registerClientDto,
+      UserRole.CLIENT,
+      UserStatus.PENDING,
+    );
+
+    await this.clientProfileRepository.create({
+      user,
+    });
+
+    const token = await this.generateResetCode();
+    const hashedToken = await this.hashData(token);
+
+    user.emailVerificationCodeHash = hashedToken;
+    user.emailVerificationExpiresAt = new Date(Date.now() + 3600000);
+
+    await this.userRepository.update(user);
+
+    await this.mailService.sendEmailVerificationCode(
+      user.email,
+      user.firstName,
+      hashedToken,
+    );
+
+    return new ApiResponse(
+      true,
+      'Client Registered Successfully, token sent to your email kindly verify.',
+      {
+        user,
+      },
+    );
+  };
+
+  public registerCoach = async (registerCoachDto: RegisterCoachDto) => {
+    const user = await this.createUser(
+      registerCoachDto,
+      UserRole.COACH,
+      UserStatus.PENDING,
+    );
+
+    await this.coachProfileRepository.create({
+      user,
+    });
+
+    return new ApiResponse(
+      true,
+      'Registration submitted successfully. Your account is awaiting admin approval.',
+      null,
+    );
+  };
 
   private async generateTokens(user: User) {
     const payload: JwtPayload = {
@@ -138,17 +224,40 @@ export class AuthService {
     // Save new refresh token hash
     await this.updateRefreshToken(user.id, newRefreshToken);
 
-    return {
+    return new ApiResponse(true, 'Token refreshed successfully.', {
       accessToken,
       refreshToken: newRefreshToken,
-    };
+    });
+  };
+
+  public verifyEmail = async (email: string, token: string) => {
+    const user = await this.userRepository.findByEmail(email);
+    if (!user) {
+      throw new UnauthorizedException('Invalid email or token.');
+    }
+    if (!user.emailVerificationCodeHash) {
+      throw new UnauthorizedException('Invalid token.');
+    }
+
+    const isTokenValid = await bcrypt.compare(
+      token,
+      user.emailVerificationCodeHash,
+    );
+    if (!isTokenValid) {
+      throw new UnauthorizedException('Invalid token.');
+    }
+    user.emailVerificationCodeHash = null;
+    user.emailVerificationExpiresAt = null;
+    await this.userRepository.update(user);
+    return new ApiResponse(true, 'Email verified successfully.', null);
   };
 
   public login = async (loginDto: LoginDto) => {
     const user = await this.validateUser(loginDto);
     const { accessToken, refreshToken } = await this.generateTokens(user);
     await this.updateRefreshToken(user.id, refreshToken);
-    return {
+
+    return new ApiResponse(true, 'Login successful.', {
       accessToken,
       refreshToken,
       user: {
@@ -160,10 +269,10 @@ export class AuthService {
         role: user.role,
         status: user.status,
       },
-    };
+    });
   };
 
-  async logout(userId: string): Promise<void> {
+  async logout(userId: string) {
     const user = await this.userRepository.findById(userId);
 
     if (!user) {
@@ -173,6 +282,8 @@ export class AuthService {
     user.refreshTokenHash = null;
 
     await this.userRepository.update(user);
+
+    return new ApiResponse(true, 'Logged out successfully.', null);
   }
 
   private generateResetCode(): string {
@@ -184,10 +295,11 @@ export class AuthService {
 
     // Never reveal whether the email exists
     if (!user) {
-      return {
-        message:
-          'If an account exists with this email, a reset code has been sent.',
-      };
+      return new ApiResponse(
+        true,
+        'If an account exists with this email, a reset code has been sent.',
+        null,
+      );
     }
 
     const code = this.generateResetCode();
@@ -206,9 +318,11 @@ export class AuthService {
       code,
     );
 
-    return {
-      message: 'Reset code has been sent to your email',
-    };
+    return new ApiResponse(
+      true,
+      'Reset code has been sent to your email.',
+      null,
+    );
   };
 
   public resetPassword = async (resetPasswordDto: ResetPasswordDto) => {
@@ -231,9 +345,7 @@ export class AuthService {
 
     await this.userRepository.update(user);
 
-    return {
-      message: 'Password reset successfully.',
-    };
+    return new ApiResponse(true, 'Password reset successfully.', null);
   };
 
   public verifyResetCode = async (dto: VerifyResetCodeDto) => {
@@ -256,9 +368,7 @@ export class AuthService {
       throw new BadRequestException('Invalid code.');
     }
 
-    return {
-      message: 'Code verified successfully.',
-    };
+    return new ApiResponse(true, 'Code verified successfully.', null);
   };
 
   public changePassword = async (
@@ -298,8 +408,6 @@ export class AuthService {
 
     await this.userRepository.update(user);
 
-    return {
-      message: 'Password changed successfully.',
-    };
+    return new ApiResponse(true, 'Password changed successfully.', null);
   };
 }

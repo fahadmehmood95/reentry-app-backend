@@ -84,6 +84,17 @@ export class User {
   })
   passwordResetExpiresAt!: Date | null;
 
+  @Column({
+    nullable: true,
+  })
+  emailVerificationCodeHash!: string | null;
+
+  @Column({
+    type: 'timestamp',
+    nullable: true,
+  })
+  emailVerificationExpiresAt!: Date | null;
+
   @CreateDateColumn()
   createdAt!: Date;
 
