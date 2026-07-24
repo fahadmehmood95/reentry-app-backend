@@ -3,6 +3,7 @@
     "module": "commonjs",
     "declaration": true,
     "removeComments": true,
+    "types": ["node"],
     "emitDecoratorMetadata": true,
     "paths": {
       "src/*": ["src/*"]

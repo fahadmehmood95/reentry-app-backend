@@ -67,11 +67,13 @@ export class User {
   status!: UserStatus;
 
   @Column({
+    type: 'text',
     nullable: true,
   })
   refreshTokenHash!: string | null;
 
   @Column({
+    type: 'text',
     nullable: true,
   })
   passwordResetCodeHash!: string | null;
