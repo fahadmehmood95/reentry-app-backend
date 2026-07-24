@@ -13,6 +13,8 @@ import { UserRole, UserStatus } from '../../common/enums';
 import { CoachProfile } from '../../profiles/entity/coach.profile.entity';
 import { ClientProfile } from '../../profiles/entity/client.profile.entity';
 import { Document } from '../../documents/entity/documents.entity';
+import { RefreshToken } from '../../auth/entity/refresh-token.entity';
+import { VerificationToken } from '../../auth/entity/verification-token.entity';
 
 @Entity('users')
 export class User {
@@ -59,41 +61,21 @@ export class User {
   @OneToMany(() => Document, (document) => document.user)
   documents?: Document;
 
+  @OneToMany(() => RefreshToken, (refreshToken) => refreshToken.user)
+  refreshTokens?: RefreshToken[];
+
+  @OneToMany(
+    () => VerificationToken,
+    (verificationToken) => verificationToken.user,
+  )
+  verificationTokens?: VerificationToken[];
+
   @Column({
     type: 'enum',
     enum: UserStatus,
     default: UserStatus.PENDING,
   })
   status!: UserStatus;
-
-  @Column({
-    type: 'text',
-    nullable: true,
-  })
-  refreshTokenHash!: string | null;
-
-  @Column({
-    type: 'text',
-    nullable: true,
-  })
-  passwordResetCodeHash!: string | null;
-
-  @Column({
-    type: 'timestamp',
-    nullable: true,
-  })
-  passwordResetExpiresAt!: Date | null;
-
-  @Column({
-    nullable: true,
-  })
-  emailVerificationCodeHash!: string | null;
-
-  @Column({
-    type: 'timestamp',
-    nullable: true,
-  })
-  emailVerificationExpiresAt!: Date | null;
 
   @CreateDateColumn()
   createdAt!: Date;

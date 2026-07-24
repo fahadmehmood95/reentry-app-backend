@@ -6,15 +6,16 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
+import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcrypt';
+import { randomUUID } from 'crypto';
+import ms, { StringValue } from 'ms';
 
 import { LoginDto } from './dto/login.dto';
 import { User } from '../users/entities/user.entity';
 import { UserRepository } from '../users/repository/user.repository';
 import { UserStatus } from '../common/enums';
 import { JwtPayload } from './interfaces/jwt-payload.interface';
-import { ConfigService } from '@nestjs/config';
-import { StringValue } from 'ms'; // only if you want the exact type; optiona
 import { RefreshTokenDto } from './dto/refresh.dto';
 import { MailService } from 'src/mail/mail.service';
 import { ForgotPasswordDto } from './dto/forget-password.dto';
@@ -28,6 +29,14 @@ import { ClientProfileRepository } from 'src/profiles/repository/clientprofile.r
 import { RegisterCoachDto } from './dto/registerCoach.dto';
 import { CoachProfileRepository } from 'src/profiles/repository/coachprofile.repository';
 import { ApiResponse } from '../common/responses/api-response';
+import { RefreshTokenRepository } from './repository/refresh-token-repository';
+import { VerificationTokenRepository } from './repository/verficiaiton.token.repository';
+import { VerificationTokenType } from './entity/verification-token.entity';
+
+interface DeviceInfo {
+  userAgent?: string | null;
+  ip?: string | null;
+}
 
 @Injectable()
 export class AuthService {
@@ -38,6 +47,8 @@ export class AuthService {
     private readonly mailService: MailService,
     private readonly clientProfileRepository: ClientProfileRepository,
     private readonly coachProfileRepository: CoachProfileRepository,
+    private readonly refreshTokenRepository: RefreshTokenRepository,
+    private readonly verificationTokenRepository: VerificationTokenRepository,
   ) {}
 
   private async validateUser(loginDto: LoginDto): Promise<User> {
@@ -99,23 +110,24 @@ export class AuthService {
       user,
     });
 
-    const token = await this.generateResetCode();
-    const hashedToken = await this.hashData(token);
+    const code = this.generateResetCode();
 
-    user.emailVerificationCodeHash = hashedToken;
-    user.emailVerificationExpiresAt = new Date(Date.now() + 3600000);
-
-    await this.userRepository.update(user);
+    await this.verificationTokenRepository.create({
+      userId: user.id,
+      type: VerificationTokenType.EMAIL_VERIFICATION,
+      codeHash: await this.hashData(code),
+      expiresAt: new Date(Date.now() + 3600000), // 1 hour
+    });
 
     await this.mailService.sendEmailVerificationCode(
       user.email,
       user.firstName,
-      hashedToken,
+      code,
     );
 
     return new ApiResponse(
       true,
-      'Client Registered Successfully, token sent to your email kindly verify.',
+      'Client Registered Successfully, code sent to your email kindly verify.',
       {
         user,
       },
@@ -140,50 +152,58 @@ export class AuthService {
     );
   };
 
-  private async generateTokens(user: User) {
-    const payload: JwtPayload = {
+  private async hashData(data: string): Promise<string> {
+    return bcrypt.hash(data, 10);
+  }
+
+  private getExpiryMs(configKey: string, fallback: StringValue): number {
+    const raw = this.configService.get<StringValue>(configKey) ?? fallback;
+    return ms(raw);
+  }
+
+  // Signs a fresh access + refresh token pair and persists the refresh
+  // token as its own row (hashed), so a user can be logged in from
+  // multiple devices and each session can be revoked independently.
+  private async issueTokens(user: User, deviceInfo?: DeviceInfo) {
+    const jti = randomUUID();
+
+    const basePayload: JwtPayload = {
       sub: user.id,
       email: user.email,
       role: user.role,
     };
 
     const [accessToken, refreshToken] = await Promise.all([
-      this.jwtService.signAsync(payload, {
+      this.jwtService.signAsync(basePayload, {
         secret: this.configService.get<string>('JWT_SECRET'),
         expiresIn: this.configService.get<StringValue>('JWT_EXPIRES_IN'),
       }),
 
-      this.jwtService.signAsync(payload, {
-        secret: this.configService.get<string>('JWT_REFRESH_SECRET'),
-        expiresIn: this.configService.get<StringValue>(
-          'JWT_REFRESH_EXPIRES_IN',
-        ),
-      }),
+      this.jwtService.signAsync(
+        { ...basePayload, jti },
+        {
+          secret: this.configService.get<string>('JWT_REFRESH_SECRET'),
+          expiresIn: this.configService.get<StringValue>(
+            'JWT_REFRESH_EXPIRES_IN',
+          ),
+        },
+      ),
     ]);
 
-    return {
-      accessToken,
-      refreshToken,
-    };
-  }
+    const expiresAt = new Date(
+      Date.now() + this.getExpiryMs('JWT_REFRESH_EXPIRES_IN', '7d'),
+    );
 
-  private async updateRefreshToken(
-    userId: string,
-    refreshToken: string,
-  ): Promise<void> {
-    const user = await this.userRepository.findById(userId);
+    await this.refreshTokenRepository.create({
+      userId: user.id,
+      jti,
+      tokenHash: await this.hashData(refreshToken),
+      expiresAt,
+      userAgent: deviceInfo?.userAgent ?? null,
+      ip: deviceInfo?.ip ?? null,
+    });
 
-    if (!user) {
-      throw new UnauthorizedException();
-    }
-
-    user.refreshTokenHash = await this.hashData(refreshToken);
-
-    await this.userRepository.update(user);
-  }
-
-  private async hashData(data: string): Promise<string> {
-    return bcrypt.hash(data, 10);
+    return { accessToken, refreshToken };
   }
 
   private async verifyRefreshToken(token: string): Promise<JwtPayload> {
@@ -192,37 +212,52 @@ export class AuthService {
     });
   }
 
-  public refreshToken = async (refreshTokenDto: RefreshTokenDto) => {
+  public refreshToken = async (
+    refreshTokenDto: RefreshTokenDto,
+    deviceInfo?: DeviceInfo,
+  ) => {
     const { refreshToken } = refreshTokenDto;
 
-    // Verify JWT
+    // Verify JWT signature/expiry first (cheap, no DB hit needed).
     const payload = await this.verifyRefreshToken(refreshToken);
 
-    // Find user
+    if (!payload.jti) {
+      throw new UnauthorizedException('Invalid refresh token');
+    }
+
+    // O(1) lookup of the exact session instead of comparing against
+    // every refresh token the user has ever issued.
+    const storedToken = await this.refreshTokenRepository.findByJti(
+      payload.jti,
+    );
+
+    if (
+      !storedToken ||
+      storedToken.revokedAt ||
+      storedToken.expiresAt < new Date()
+    ) {
+      throw new UnauthorizedException('Invalid refresh token');
+    }
+
+    const isValid = await bcrypt.compare(refreshToken, storedToken.tokenHash);
+
+    if (!isValid) {
+      throw new UnauthorizedException('Invalid refresh token');
+    }
+
     const user = await this.userRepository.findById(payload.sub);
 
     if (!user) {
       throw new UnauthorizedException('Invalid refresh token');
     }
 
-    // User must still have a refresh token
-    if (!user.refreshTokenHash) {
-      throw new UnauthorizedException('Invalid refresh token');
-    }
+    // Rotation: kill the token that was just used, then issue a new
+    // pair. Prevents a leaked (and now-used) refresh token from being
+    // replayed even if it hasn't technically expired yet.
+    await this.refreshTokenRepository.revokeByJti(payload.jti);
 
-    // Compare incoming token with hashed token in DB
-    const isValid = await bcrypt.compare(refreshToken, user.refreshTokenHash);
-
-    if (!isValid) {
-      throw new UnauthorizedException('Invalid refresh token');
-    }
-
-    // Generate new tokens (rotation)
     const { accessToken, refreshToken: newRefreshToken } =
-      await this.generateTokens(user);
-
-    // Save new refresh token hash
-    await this.updateRefreshToken(user.id, newRefreshToken);
+      await this.issueTokens(user, deviceInfo);
 
     return new ApiResponse(true, 'Token refreshed successfully.', {
       accessToken,
@@ -230,32 +265,44 @@ export class AuthService {
     });
   };
 
-  public verifyEmail = async (email: string, token: string) => {
+  public verifyEmail = async (email: string, code: string) => {
     const user = await this.userRepository.findByEmail(email);
+
     if (!user) {
-      throw new UnauthorizedException('Invalid email or token.');
-    }
-    if (!user.emailVerificationCodeHash) {
-      throw new UnauthorizedException('Invalid token.');
+      throw new UnauthorizedException('Invalid email or code.');
     }
 
-    const isTokenValid = await bcrypt.compare(
-      token,
-      user.emailVerificationCodeHash,
+    const token = await this.verificationTokenRepository.findActive(
+      user.id,
+      VerificationTokenType.EMAIL_VERIFICATION,
     );
-    if (!isTokenValid) {
-      throw new UnauthorizedException('Invalid token.');
+
+    if (!token) {
+      throw new UnauthorizedException('Invalid or expired code.');
     }
-    user.emailVerificationCodeHash = null;
-    user.emailVerificationExpiresAt = null;
-    await this.userRepository.update(user);
+
+    const isValid = await bcrypt.compare(code, token.codeHash);
+
+    if (!isValid) {
+      throw new UnauthorizedException('Invalid code.');
+    }
+
+    await this.verificationTokenRepository.markConsumed(token.id);
+
+    if (user.status === UserStatus.PENDING) {
+      user.status = UserStatus.ACTIVE;
+      await this.userRepository.update(user);
+    }
+
     return new ApiResponse(true, 'Email verified successfully.', null);
   };
 
-  public login = async (loginDto: LoginDto) => {
+  public login = async (loginDto: LoginDto, deviceInfo?: DeviceInfo) => {
     const user = await this.validateUser(loginDto);
-    const { accessToken, refreshToken } = await this.generateTokens(user);
-    await this.updateRefreshToken(user.id, refreshToken);
+    const { accessToken, refreshToken } = await this.issueTokens(
+      user,
+      deviceInfo,
+    );
 
     return new ApiResponse(true, 'Login successful.', {
       accessToken,
@@ -272,16 +319,23 @@ export class AuthService {
     });
   };
 
-  async logout(userId: string) {
-    const user = await this.userRepository.findById(userId);
-
-    if (!user) {
-      throw new UnauthorizedException();
+  // If a refresh token is provided, only that session is logged out.
+  // Otherwise every session for the user is revoked (old behaviour).
+  async logout(userId: string, refreshToken?: string) {
+    if (refreshToken) {
+      try {
+        const payload = await this.verifyRefreshToken(refreshToken);
+        if (payload.jti) {
+          await this.refreshTokenRepository.revokeByJti(payload.jti);
+          return new ApiResponse(true, 'Logged out successfully.', null);
+        }
+      } catch {
+        // Token already invalid/expired — fall through and revoke
+        // everything for the user as a safe default.
+      }
     }
 
-    user.refreshTokenHash = null;
-
-    await this.userRepository.update(user);
+    await this.refreshTokenRepository.revokeAllForUser(userId);
 
     return new ApiResponse(true, 'Logged out successfully.', null);
   }
@@ -302,15 +356,20 @@ export class AuthService {
       );
     }
 
-    const code = this.generateResetCode();
-
-    user.passwordResetCodeHash = await bcrypt.hash(code, 10);
-
-    user.passwordResetExpiresAt = new Date(
-      Date.now() + 5 * 60 * 1000, // 15 minutes
+    // Kill any earlier unused reset codes so only the latest one works.
+    await this.verificationTokenRepository.invalidateActive(
+      user.id,
+      VerificationTokenType.PASSWORD_RESET,
     );
 
-    await this.userRepository.update(user);
+    const code = this.generateResetCode();
+
+    await this.verificationTokenRepository.create({
+      userId: user.id,
+      type: VerificationTokenType.PASSWORD_RESET,
+      codeHash: await this.hashData(code),
+      expiresAt: new Date(Date.now() + 5 * 60 * 1000), // 5 minutes
+    });
 
     await this.mailService.sendPasswordResetCode(
       user.email,
@@ -332,18 +391,30 @@ export class AuthService {
       throw new BadRequestException('Invalid email');
     }
 
-    const isValid = await bcrypt.compare(
-      resetPasswordDto.code,
-      user.passwordResetCodeHash!,
+    const token = await this.verificationTokenRepository.findActive(
+      user.id,
+      VerificationTokenType.PASSWORD_RESET,
     );
+
+    if (!token) {
+      throw new BadRequestException('Invalid or expired code.');
+    }
+
+    const isValid = await bcrypt.compare(resetPasswordDto.code, token.codeHash);
 
     if (!isValid) {
       throw new BadRequestException('Invalid code.');
     }
 
-    user.password = resetPasswordDto.newPassword;
+    await this.verificationTokenRepository.markConsumed(token.id);
+
+    user.password = await bcrypt.hash(resetPasswordDto.newPassword, 10);
 
     await this.userRepository.update(user);
+
+    // Password reset should log the user out everywhere, same as a
+    // regular password change.
+    await this.refreshTokenRepository.revokeAllForUser(user.id);
 
     return new ApiResponse(true, 'Password reset successfully.', null);
   };
@@ -355,19 +426,24 @@ export class AuthService {
       throw new BadRequestException('Invalid code.');
     }
 
-    if (
-      !user.passwordResetExpiresAt ||
-      user.passwordResetExpiresAt < new Date()
-    ) {
+    const token = await this.verificationTokenRepository.findActive(
+      user.id,
+      VerificationTokenType.PASSWORD_RESET,
+    );
+
+    if (!token) {
       throw new BadRequestException('Code has expired.');
     }
 
-    const isValid = await bcrypt.compare(dto.code, user.passwordResetCodeHash!);
+    const isValid = await bcrypt.compare(dto.code, token.codeHash);
 
     if (!isValid) {
       throw new BadRequestException('Invalid code.');
     }
 
+    // Deliberately not consumed here — resetPassword() consumes it.
+    // This endpoint only checks validity so the UI can show a
+    // "code accepted" step before the user sets a new password.
     return new ApiResponse(true, 'Code verified successfully.', null);
   };
 
@@ -403,10 +479,10 @@ export class AuthService {
 
     user.password = await bcrypt.hash(changePasswordDto.newPassword, 10);
 
-    // Logout all devices
-    user.refreshTokenHash = null;
-
     await this.userRepository.update(user);
+
+    // Logout all devices
+    await this.refreshTokenRepository.revokeAllForUser(user.id);
 
     return new ApiResponse(true, 'Password changed successfully.', null);
   };

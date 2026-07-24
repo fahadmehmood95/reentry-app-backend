@@ -10,6 +10,8 @@ import { JwtStrategy } from './strategies/jwt.strategy';
 import { UsersModule } from '../users/users.module';
 import { MailModule } from '../mail/mail.module';
 import { StringValue } from 'ms'; // only if you want the exact type; optiona
+import { RefreshTokenRepository } from './repository/refresh-token-repository';
+import { VerificationTokenRepository } from './repository/verficiaiton.token.repository';
 
 @Module({
   imports: [
@@ -38,6 +40,11 @@ import { StringValue } from 'ms'; // only if you want the exact type; optiona
 
   providers: [AuthService, JwtStrategy],
 
-  exports: [JwtModule, PassportModule],
+  exports: [
+    JwtModule,
+    PassportModule,
+    RefreshTokenRepository,
+    VerificationTokenRepository,
+  ],
 })
 export class AuthModule {}

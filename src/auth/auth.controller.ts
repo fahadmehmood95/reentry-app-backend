@@ -4,8 +4,11 @@ import {
   HttpCode,
   HttpStatus,
   Post,
+  Res,
   UseGuards,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { Response } from 'express';
 
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
@@ -18,8 +21,6 @@ import { ForgotPasswordDto } from './dto/forget-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { VerifyResetCodeDto } from './dto/verify-reset-code';
 import { ChangePasswordDto } from './dto/change-password.dto';
-import { Response } from 'express';
-import { Res } from '@nestjs/common';
 import { BaseRegisterDto } from './dto/base-dto';
 import { RegisterClientDto } from './dto/registerClient.dto';
 import { RegisterCoachDto } from './dto/registerCoach.dto';
@@ -27,7 +28,10 @@ import { VerifiyEmailDto } from './dto/verify-email';
 
 @Controller('auth')
 export class AuthController {
-  constructor(private readonly authService: AuthService) {}
+  constructor(
+    private readonly authService: AuthService,
+    private readonly configService: ConfigService,
+  ) {}
 
   @Post('login')
   @HttpCode(HttpStatus.OK)
@@ -36,12 +40,11 @@ export class AuthController {
     @Res({ passthrough: true }) res: Response,
   ) {
     const result = await this.authService.login(loginDto);
-
-    res.cookie('refreshToken', result.data?.accessToken, {
+    res.cookie('refreshToken', result.data?.refreshToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'lax',
-      maxAge: 7 * 24 * 60 * 60 * 1000,
+      maxAge: this.getRefreshTokenMaxAgeMs(),
     });
 
     return {
@@ -67,6 +70,7 @@ export class AuthController {
 
   @Post('logout')
   @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
   logout(@CurrentUser() user: User, @Res({ passthrough: true }) res: Response) {
     res.clearCookie('refreshToken');
     return this.authService.logout(user.id);
@@ -78,8 +82,11 @@ export class AuthController {
   }
 
   @Post('verify-email')
-  verifyEmail(@Body() verifyResetCodeDto: VerifiyEmailDto) {
-    return this.authService.verifyResetCode(verifyResetCodeDto);
+  verifyEmail(@Body() verifyEmailDto: VerifiyEmailDto) {
+    return this.authService.verifyEmail(
+      verifyEmailDto.email,
+      verifyEmailDto.code,
+    );
   }
 
   @Post('verify-reset-code')
@@ -100,5 +107,18 @@ export class AuthController {
     @Body() changePasswordDto: ChangePasswordDto,
   ) {
     return this.authService.changePassword(user.id, changePasswordDto);
+  }
+
+  private getRefreshTokenMaxAgeMs(): number {
+    const expiresIn = this.configService.get<string>('JWT_REFRESH_EXPIRES_IN');
+
+    // Falls back to 7 days if the env var is missing/unparseable, so a
+    // misconfigured env doesn't crash the login route.
+    const parsedDays = expiresIn?.match(/^(\d+)d$/)?.[1];
+    if (parsedDays) {
+      return Number(parsedDays) * 24 * 60 * 60 * 1000;
+    }
+
+    return 7 * 24 * 60 * 60 * 1000;
   }
 }
