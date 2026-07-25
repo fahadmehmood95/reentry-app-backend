@@ -45,6 +45,26 @@ export class MailService {
     });
   }
 
+  async sendCoachEmail(
+    email: string,
+    firstName: string,
+    status: string,
+  ): Promise<void> {
+    const message =
+      status === 'ACTIVE'
+        ? `<p>Your account has been <strong>activated</strong> successfully. You may now log in to your account.</p>`
+        : `<p>Due to some reasons, your account has been <strong>deactivated</strong> by the admin. Kindly contact the administrator for further assistance.</p>`;
+
+    await this.mailerService.sendMail({
+      to: email,
+      subject: 'Account Status Changed',
+      html: `
+      <h2>Hello ${firstName},</h2>
+      ${message}
+    `,
+    });
+  }
+
   async sendWelcomeEmail(email: string, firstName: string): Promise<void> {
     await this.mailerService.sendMail({
       to: email,
