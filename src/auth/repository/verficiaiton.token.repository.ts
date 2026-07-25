@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { LessThan, MoreThan, Repository } from 'typeorm';
+import { IsNull, LessThan, MoreThan, Repository } from 'typeorm';
 
 import {
   VerificationToken,
@@ -45,7 +45,7 @@ export class VerificationTokenRepository {
       where: {
         userId,
         type,
-        consumedAt: undefined,
+        consumedAt: IsNull(),
         expiresAt: MoreThan(new Date()),
       },
       order: { createdAt: 'DESC' },

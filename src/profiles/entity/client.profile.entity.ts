@@ -23,4 +23,12 @@ export class ClientProfile {
   })
   @JoinColumn({ name: 'userId' })
   user!: User;
+
+  @Column({
+    length: 100,
+  })
+  resume!: string;
+
+  @Column({ length: 100 })
+  idCard!: string;
 }

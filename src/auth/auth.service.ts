@@ -23,7 +23,7 @@ import { VerifyResetCodeDto } from './dto/verify-reset-code';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { BaseRegisterDto } from './dto/base-dto';
-import { UserRole } from 'generated/prisma/enums';
+import { UserRole } from 'src/common/enums';
 import { RegisterClientDto } from './dto/registerClient.dto';
 import { ClientProfileRepository } from 'src/profiles/repository/clientprofile.repository';
 import { RegisterCoachDto } from './dto/registerCoach.dto';
@@ -108,6 +108,9 @@ export class AuthService {
 
     await this.clientProfileRepository.create({
       user,
+      releaseDate: registerClientDto.releaseDate,
+      resume: registerClientDto.resume,
+      idCard: registerClientDto.idCard,
     });
 
     const code = this.generateResetCode();
@@ -119,11 +122,16 @@ export class AuthService {
       expiresAt: new Date(Date.now() + 3600000), // 1 hour
     });
 
-    await this.mailService.sendEmailVerificationCode(
-      user.email,
-      user.firstName,
-      code,
-    );
+    try {
+      await this.mailService.sendEmailVerificationCode(
+        user.email,
+        user.firstName,
+        code,
+      );
+    } catch (err) {
+      // log it, maybe queue a retry, but don't fail registration
+      console.error('Failed to send verification email:', err);
+    }
 
     return new ApiResponse(
       true,

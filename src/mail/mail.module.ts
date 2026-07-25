@@ -10,21 +10,33 @@ import { MailService } from './mail.service';
 
     MailerModule.forRootAsync({
       inject: [ConfigService],
-      useFactory: (config: ConfigService) => ({
-        transport: {
-          host: config.get<string>('MAIL_HOST'),
-          port: Number(config.get<number>('MAIL_PORT')),
-          secure: false,
-          auth: {
-            user: config.get<string>('MAIL_USER'),
-            pass: config.get<string>('MAIL_PASSWORD'),
-          },
-        },
+      useFactory: (config: ConfigService) => {
+        const pass = config.get<string>('MAIL_PASSWORD');
+        const user = config.get<string>('MAIL_USER');
+        const host = config.get<string>('MAIL_HOST');
+        const port = config.get<number>('MAIL_PORT');
 
-        defaults: {
-          from: config.get<string>('MAIL_FROM'),
-        },
-      }),
+        console.log('MAIL DEBUG:', {
+          user,
+          pass: JSON.stringify(pass),
+          passLength: pass?.length,
+          host,
+          port,
+          portType: typeof port,
+        });
+
+        return {
+          transport: {
+            host,
+            port: Number(port),
+            secure: false,
+            auth: { user, pass },
+          },
+          defaults: {
+            from: config.get<string>('MAIL_FROM'),
+          },
+        };
+      },
     }),
   ],
 

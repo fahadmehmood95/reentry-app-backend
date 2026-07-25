@@ -9,9 +9,13 @@ import { JwtStrategy } from './strategies/jwt.strategy';
 
 import { UsersModule } from '../users/users.module';
 import { MailModule } from '../mail/mail.module';
+import { ProfilesModule } from '../profiles/profiles.module';
 import { StringValue } from 'ms'; // only if you want the exact type; optiona
 import { RefreshTokenRepository } from './repository/refresh-token-repository';
 import { VerificationTokenRepository } from './repository/verficiaiton.token.repository';
+import { TypeOrmModule } from '@nestjs/typeorm';
+import { RefreshToken } from './entity/refresh-token.entity';
+import { VerificationToken } from './entity/verification-token.entity';
 
 @Module({
   imports: [
@@ -34,11 +38,17 @@ import { VerificationTokenRepository } from './repository/verficiaiton.token.rep
 
     UsersModule,
     MailModule,
+    ProfilesModule,
+    TypeOrmModule.forFeature([RefreshToken, VerificationToken]),
   ],
-
   controllers: [AuthController],
 
-  providers: [AuthService, JwtStrategy],
+  providers: [
+    AuthService,
+    JwtStrategy,
+    RefreshTokenRepository,
+    VerificationTokenRepository,
+  ],
 
   exports: [
     JwtModule,
