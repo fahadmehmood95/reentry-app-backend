@@ -7,6 +7,8 @@ import {
   DeleteDateColumn,
   OneToOne,
   OneToMany,
+  ManyToOne,
+  JoinColumn,
 } from 'typeorm';
 
 import { UserRole, UserStatus } from '../../common/enums';
@@ -76,6 +78,20 @@ export class User {
     default: UserStatus.PENDING,
   })
   status!: UserStatus;
+
+  @ManyToOne(() => User, (user) => user.clients, {
+    nullable: true,
+  })
+  @JoinColumn({ name: 'coachId' })
+  coach!: User | null;
+
+  @Column({
+    nullable: true,
+  })
+  coachId!: string | null;
+
+  @OneToMany(() => User, (user) => user.coach)
+  clients?: User[];
 
   @CreateDateColumn()
   createdAt!: Date;
