@@ -7,6 +7,8 @@ import {
 } from 'typeorm';
 
 import { User } from '../../users/entities/user.entity';
+import { ApiProperty } from '@nestjs/swagger';
+import { IsNotEmpty, IsString, IsUrl } from 'class-validator';
 
 @Entity('client_profiles')
 export class ClientProfile {
@@ -24,11 +26,9 @@ export class ClientProfile {
   @JoinColumn({ name: 'userId' })
   user!: User;
 
-  @Column({
-    length: 100,
-  })
-  resume!: string;
+  @Column({ nullable: true })
+  resumeUrl!: string;
 
-  @Column({ length: 100 })
-  idCard!: string;
+  @Column({ nullable: true })
+  idCardUrl!: string;
 }

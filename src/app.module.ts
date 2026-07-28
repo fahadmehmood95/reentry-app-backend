@@ -7,6 +7,8 @@ import { DocumentsModule } from './documents/documents.module';
 import { AuthModule } from './auth/auth.module';
 import { MailModule } from './mail/mail.module';
 import { AdminModule } from './admin/admin.module';
+import { UploadModule } from './upload/upload.module';
+import { AwsModule } from './aws/aws.module';
 
 @Module({
   imports: [
@@ -48,6 +50,10 @@ import { AdminModule } from './admin/admin.module';
     MailModule,
 
     AdminModule,
+
+    UploadModule,
+
+    AwsModule,
   ],
 })
 export class AppModule {}

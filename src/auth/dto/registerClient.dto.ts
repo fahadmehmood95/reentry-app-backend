@@ -1,7 +1,8 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsDateString, IsNotEmpty, IsString } from 'class-validator';
+import { IsDateString, IsNotEmpty, IsString, IsUrl } from 'class-validator';
 
 import { BaseRegisterDto } from './base-dto';
+import { Column } from 'typeorm';
 
 export class RegisterClientDto extends BaseRegisterDto {
   @ApiProperty({
@@ -11,16 +12,18 @@ export class RegisterClientDto extends BaseRegisterDto {
   releaseDate!: Date;
 
   @ApiProperty({
-    example: 'resume.pdf',
+    example: 'https://my-bucket.s3.amazonaws.com/resume.pdf',
   })
   @IsString()
   @IsNotEmpty()
-  resume!: string;
+  @IsUrl()
+  resumeUrl!: string;
 
   @ApiProperty({
-    example: 'id-card.pdf',
+    example: 'https://my-bucket.s3.amazonaws.com/id-card.pdf',
   })
   @IsString()
   @IsNotEmpty()
-  idCard!: string;
+  @IsUrl()
+  idCardUrl!: string;
 }

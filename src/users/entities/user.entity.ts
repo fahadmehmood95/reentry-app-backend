@@ -61,7 +61,7 @@ export class User {
   clientProfile?: ClientProfile;
 
   @OneToMany(() => Document, (document) => document.user)
-  documents?: Document;
+  documents?: Document[];
 
   @OneToMany(() => RefreshToken, (refreshToken) => refreshToken.user)
   refreshTokens?: RefreshToken[];

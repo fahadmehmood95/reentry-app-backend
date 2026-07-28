@@ -2,6 +2,7 @@ import { ApiProperty } from '@nestjs/swagger';
 import { IsInt, IsNotEmpty, IsString, Min } from 'class-validator';
 
 import { BaseRegisterDto } from './base-dto';
+import { Column } from 'typeorm';
 
 export class RegisterCoachDto extends BaseRegisterDto {
   @ApiProperty({
@@ -22,14 +23,19 @@ export class RegisterCoachDto extends BaseRegisterDto {
     example: 5,
     description: 'Years of professional experience',
   })
-  @IsInt()
-  @Min(0)
-  experience!: number;
-
   @ApiProperty({
-    example: 'PK-PSY-123456',
+    example: 'https://my-bucket.s3.amazonaws.com/resume.pdf',
   })
   @IsString()
   @IsNotEmpty()
-  licenseNumber!: string;
+  @IsUrl()
+  resumeUrl!: string;
+
+  @ApiProperty({
+    example: 'https://my-bucket.s3.amazonaws.com/experience-letter.pdf',
+  })
+  @IsString()
+  @IsNotEmpty()
+  @IsUrl()
+  experienceLetter!: string;
 }
